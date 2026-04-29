@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 def normalize_model(model: str | None) -> str:
     if not model:
         return "gpt-5.1"

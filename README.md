@@ -19,6 +19,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 PYTHONPATH=. python -m unittest discover -s tests
+python auth_cli.py
 python main.py
 ```
 
@@ -29,4 +30,5 @@ curl -s http://127.0.0.1:8787/health
 
 ## Notes
 - This is migration work-in-progress and not feature-parity yet.
-- OAuth token refresh flow is intentionally deferred to the next iteration.
+- OAuth token refresh flow is now wired (refresh token grant).
+- OAuth tokens are stored at `~/.codex-oauth-gateway-python/openai.json` by default. Set `CODEX_GATEWAY_TOKEN_FILE` to override this path.

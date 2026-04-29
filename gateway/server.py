@@ -6,6 +6,7 @@ import requests
 from .auth import get_chatgpt_account_id, get_valid_tokens, load_tokens
 from .config import (
     CODEX_RESPONSES_URL,
+    DEFAULT_INSTRUCTIONS,
     DEFAULT_GATEWAY_PORT,
     DEFAULT_UPSTREAM_TIMEOUT_SECONDS,
     OPENAI_HEADERS,
@@ -47,6 +48,7 @@ def _transform_body(body: dict) -> dict:
         "model": normalize_model(body.get("model")),
         "store": False,
         "stream": True,
+        "instructions": body.get("instructions") or DEFAULT_INSTRUCTIONS,
         "reasoning": {
             "effort": (body.get("reasoning") or {}).get("effort", "medium"),
             "summary": (body.get("reasoning") or {}).get("summary", "auto"),
@@ -109,10 +111,9 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 stream=True,
             )
 
-            self.send_response(upstream.status_code)
-            self.send_header("x-gateway-upstream-retry-attempts", "0")
-
             if requested_stream:
+                self.send_response(upstream.status_code)
+                self.send_header("x-gateway-upstream-retry-attempts", "0")
                 self.send_header("content-type", upstream.headers.get("content-type", "text/event-stream; charset=utf-8"))
                 self.end_headers()
                 for chunk in upstream.iter_content(chunk_size=1024):
@@ -125,6 +126,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
             final = parse_final_response(full_text)
             if final is None:
                 self.send_response(status)
+                self.send_header("x-gateway-upstream-retry-attempts", "0")
                 self.send_header("content-type", "text/event-stream; charset=utf-8")
                 self.end_headers()
                 self.wfile.write(full_text.encode("utf-8"))
@@ -132,6 +134,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
 
             payload = json.dumps(final, ensure_ascii=False).encode("utf-8")
             self.send_response(status)
+            self.send_header("x-gateway-upstream-retry-attempts", "0")
             self.send_header("content-type", "application/json; charset=utf-8")
             self.send_header("content-length", str(len(payload)))
             self.end_headers()
