@@ -124,21 +124,11 @@ curl -sS http://127.0.0.1:8787/responses -H 'content-type: application/json' -d 
 ```
 - Expected: succeeds with gateway default model.
 
-### 5.2 Legacy model aliases
-- Example one-line commands:
-```bash
-curl -sS http://127.0.0.1:8787/responses -H 'content-type: application/json' -d '{"model":"gpt-5-codex","stream":false,"input":[{"role":"user","content":"alias-check-1"}]}'
-curl -sS http://127.0.0.1:8787/responses -H 'content-type: application/json' -d '{"model":"gpt-5-codex-mini","stream":false,"input":[{"role":"user","content":"alias-check-2"}]}'
-curl -sS http://127.0.0.1:8787/responses -H 'content-type: application/json' -d '{"model":"codex-mini-latest","stream":false,"input":[{"role":"user","content":"alias-check-3"}]}'
-```
-- Expected: no local validation crash.
-
-### 5.3 Include preservation
-- Request command (single line):
-```bash
-curl -sS http://127.0.0.1:8787/responses -H 'content-type: application/json' -d '{"model":"gpt-5.1-codex","stream":false,"include":["output_text"],"input":[{"role":"user","content":"include-check"}]}'
-```
-- Expected: succeeds; include remains valid.
+### 5.2 Automated coverage note
+- The following behaviors are intentionally covered by automated tests, not this manual checklist:
+  - model alias normalization
+  - include merge and de-dup logic
+  - `usage_limit_exceeded` mapping (404 -> 429)
 
 ---
 
@@ -169,13 +159,6 @@ Expected: `413`, code `REQUEST_BODY_TOO_LARGE`.
 curl -sS http://127.0.0.1:8787/responses -H 'content-type: application/json' -d '{"model":"gpt-5.1-codex","stream":false,"input":[{"role":"user","content":"network-check"}]}'
 ```
 Expected: `UPSTREAM_REQUEST_FAILED` or `UPSTREAM_TIMEOUT`.
-
-### 6.5 Usage limit mapping
-- Request command (single line):
-```bash
-curl -sS http://127.0.0.1:8787/responses -H 'content-type: application/json' -d '{"model":"gpt-5.1-codex","stream":false,"input":[{"role":"user","content":"usage-limit-check"}]}'
-```
-- Expected: backend `usage_limit_exceeded` 404 mapped to `429`.
 
 ---
 
