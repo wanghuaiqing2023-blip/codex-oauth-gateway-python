@@ -105,7 +105,12 @@ class ServerIntegrationTests(unittest.TestCase):
             try:
                 conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
                 body = json.dumps(
-                    {"model": "gpt-5.1-codex", "stream": False, "input": [{"role": "user", "content": "hi"}]}
+                    {
+                        "model": "gpt-5.1-codex",
+                        "stream": False,
+                        "include": ["output_text", "reasoning.encrypted_content", "output_text"],
+                        "input": [{"role": "user", "content": "hi"}],
+                    }
                 ).encode("utf-8")
                 conn.request("POST", "/responses", body=body, headers={"content-type": "application/json"})
                 response = conn.getresponse()
@@ -116,6 +121,7 @@ class ServerIntegrationTests(unittest.TestCase):
                 called_json = mock_post.call_args.kwargs["json"]
                 self.assertIn("instructions", called_json)
                 self.assertTrue(called_json["instructions"])
+                self.assertEqual(called_json["include"], ["output_text", "reasoning.encrypted_content"])
                 conn.close()
             finally:
                 auth.TOKEN_FILE = original_auth_token_file
