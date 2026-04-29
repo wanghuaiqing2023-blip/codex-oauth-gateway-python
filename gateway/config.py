@@ -4,6 +4,11 @@ from pathlib import Path
 DEFAULT_GATEWAY_PORT = int(os.getenv("CODEX_GATEWAY_PORT", "8787"))
 DEFAULT_UPSTREAM_TIMEOUT_SECONDS = int(os.getenv("CODEX_UPSTREAM_TIMEOUT_SECONDS", "60"))
 CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
+CODEX_MODELS_URL = "https://chatgpt.com/backend-api/codex/models"
+CODEX_MODELS_CLIENT_VERSION = os.getenv("CODEX_MODELS_CLIENT_VERSION", "0.126.0")
+CODEX_MODELS_CACHE_TTL_SECONDS = int(os.getenv("CODEX_MODELS_CACHE_TTL_SECONDS", str(6 * 60 * 60)))
+DEFAULT_GATEWAY_MODEL = os.getenv("CODEX_GATEWAY_DEFAULT_MODEL")
+FALLBACK_GATEWAY_MODEL = os.getenv("CODEX_GATEWAY_FALLBACK_MODEL", "gpt-5.2")
 TOKEN_URL = "https://auth.openai.com/oauth/token"
 AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize"
 CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"

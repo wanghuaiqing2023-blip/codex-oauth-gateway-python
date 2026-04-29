@@ -1,14 +1,19 @@
 import unittest
 
-from gateway.model import normalize_model
+from gateway.model import normalize_model, requested_model
 from gateway.response import map_usage_limit_404, parse_final_response
 
 
 class GatewayMigrationTests(unittest.TestCase):
-    def test_normalize_model(self):
-        self.assertEqual(normalize_model("gpt-5-codex-mini"), "gpt-5.1-codex-mini")
-        self.assertEqual(normalize_model("gpt-5-codex"), "gpt-5.1-codex")
-        self.assertEqual(normalize_model("gpt-5.2"), "gpt-5.2")
+    def test_requested_model_is_forwarded_without_normalization(self):
+        self.assertEqual(requested_model("gpt-5-codex-mini"), "gpt-5-codex-mini")
+        self.assertEqual(requested_model("gpt-5-codex"), "gpt-5-codex")
+        self.assertEqual(requested_model("vendor/future-model"), "vendor/future-model")
+        self.assertIsNone(requested_model(None))
+
+    def test_normalize_model_wrapper_is_passthrough(self):
+        self.assertEqual(normalize_model("codex-mini-latest"), "codex-mini-latest")
+        self.assertIsNone(normalize_model(None))
 
     def test_parse_final_response(self):
         sse = "\n".join([
@@ -60,6 +65,30 @@ class GatewayMigrationTests(unittest.TestCase):
                     }
                 ],
                 "output_text": "hi\n",
+            },
+        )
+
+    def test_parse_final_response_applies_openai_semantics(self):
+        sse = "\n".join([
+            'data: {"type":"response.done","response":{"id":"resp_1","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}],"usage":{"total_tokens":3}}}',
+            "",
+        ])
+        self.assertEqual(
+            parse_final_response(sse, default_model="gpt-5.1-codex", openai_compatible=True),
+            {
+                "id": "resp_1",
+                "object": "response",
+                "model": "gpt-5.1-codex",
+                "status": "completed",
+                "output": [
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "hi"}],
+                    }
+                ],
+                "output_text": "hi",
+                "usage": {"total_tokens": 3},
             },
         )
 

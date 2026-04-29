@@ -3,11 +3,55 @@ from __future__ import annotations
 import json
 
 
-def parse_final_response(sse_text: str):
+def _extract_output_text(output_items: list[dict]) -> str | None:
+    text_parts: list[str] = []
+    for item in output_items:
+        if item.get("type") != "message":
+            continue
+        for part in item.get("content") or []:
+            if isinstance(part, dict) and part.get("type") == "output_text" and isinstance(part.get("text"), str):
+                text_parts.append(part["text"])
+    if not text_parts:
+        return None
+    return "".join(text_parts)
+
+
+def _final_status_for_event(event_type: str | None) -> str | None:
+    if event_type in {"response.done", "response.completed"}:
+        return "completed"
+    if event_type == "response.failed":
+        return "failed"
+    if event_type == "response.incomplete":
+        return "incomplete"
+    return None
+
+
+def _apply_openai_response_semantics(final_response: dict, default_model: str | None, final_event_type: str | None) -> dict:
+    if "object" not in final_response:
+        final_response["object"] = "response"
+
+    if default_model and "model" not in final_response:
+        final_response["model"] = default_model
+
+    default_status = _final_status_for_event(final_event_type)
+    if default_status and "status" not in final_response:
+        final_response["status"] = default_status
+
+    output = final_response.get("output")
+    if not final_response.get("output_text") and isinstance(output, list):
+        output_text = _extract_output_text([item for item in output if isinstance(item, dict)])
+        if output_text:
+            final_response["output_text"] = output_text
+
+    return final_response
+
+
+def parse_final_response(sse_text: str, *, default_model: str | None = None, openai_compatible: bool = False):
     text_deltas: list[str] = []
     output_items: list[dict] = []
     output_text_done: str | None = None
     final_response = None
+    final_event_type: str | None = None
 
     for line in sse_text.splitlines():
         if not line.startswith("data: "):
@@ -35,7 +79,8 @@ def parse_final_response(sse_text: str):
                 output_items.append(item)
             continue
 
-        if event.get("type") in {"response.done", "response.completed"}:
+        if event.get("type") in {"response.done", "response.completed", "response.failed", "response.incomplete"}:
+            final_event_type = event.get("type")
             final_response = event.get("response")
 
     if not final_response:
@@ -47,20 +92,18 @@ def parse_final_response(sse_text: str):
     output = final_response.get("output")
     has_output = isinstance(output, list) and len(output) > 0
     if has_output:
+        if openai_compatible:
+            return _apply_openai_response_semantics(final_response, default_model, final_event_type)
         return final_response
 
     if output_items:
         final_response["output"] = output_items
         if not final_response.get("output_text"):
-            text_parts: list[str] = []
-            for item in output_items:
-                if item.get("type") != "message":
-                    continue
-                for part in item.get("content") or []:
-                    if isinstance(part, dict) and part.get("type") == "output_text" and isinstance(part.get("text"), str):
-                        text_parts.append(part["text"])
-            if text_parts:
-                final_response["output_text"] = "".join(text_parts)
+            output_text = _extract_output_text(output_items)
+            if output_text:
+                final_response["output_text"] = output_text
+        if openai_compatible:
+            return _apply_openai_response_semantics(final_response, default_model, final_event_type)
         return final_response
 
     combined_text = output_text_done if output_text_done is not None else "".join(text_deltas)
@@ -73,6 +116,9 @@ def parse_final_response(sse_text: str):
                 "content": [{"type": "output_text", "text": combined_text}],
             }
         ]
+
+    if openai_compatible:
+        return _apply_openai_response_semantics(final_response, default_model, final_event_type)
 
     return final_response
 
