@@ -20,7 +20,7 @@ A Python OAuth gateway for routing local or internal requests to OpenAI Codex Re
   - Local token file persistence.
 - Request handling
   - Model normalization for common aliases.
-  - Default fields for `instructions`, `reasoning`, and `text`.
+  - Codex-required upstream fields such as `store=false` and `include=reasoning.encrypted_content`.
   - Upstream requests are sent as SSE; response format follows client request mode.
 - Response handling
   - SSE final-event parsing and `output_text` backfill.
@@ -103,6 +103,31 @@ python examples/02_response_create.py
 python examples/03_stream_response.py
 python examples/04_messages_input.py
 python examples/05_list_models.py
+python examples/06_previous_response_id_probe.py
+python examples/07_conversation_probe.py
+python examples/08_include_reasoning_encrypted_content_probe.py
+python examples/09_include_message_input_image_url_probe.py
+python examples/10_include_output_text_logprobs_probe.py
+python examples/11_include_web_search_results_probe.py
+python examples/12_include_web_search_action_sources_probe.py
+python examples/13_include_file_search_results_probe.py
+python examples/14_include_code_interpreter_outputs_probe.py
+python examples/15_include_computer_output_image_url_probe.py
+python examples/16_param_max_output_tokens_probe.py
+python examples/17_param_temperature_probe.py
+python examples/18_param_top_p_probe.py
+python examples/19_param_text_format_probe.py
+python examples/20_param_instructions_probe.py
+python examples/21_param_tool_choice_auto_probe.py
+python examples/22_param_tool_choice_none_probe.py
+python examples/23_param_tool_choice_required_probe.py
+python examples/24_param_parallel_tool_calls_false_probe.py
+python examples/25_param_parallel_tool_calls_true_probe.py
+python examples/26_reasoning_summary_metadata_probe.py
+python examples/27_param_reasoning_effort_summary_matrix_probe.py
+python examples/28_param_text_verbosity_probe.py
+python examples/29_param_service_tier_probe.py
+python examples/30_param_metadata_probe.py
 ```
 
 See `examples/README.md` for configuration options.
@@ -117,6 +142,12 @@ See `examples/README.md` for configuration options.
 - `CODEX_MODELS_CACHE_TTL_SECONDS`: in-process model-list cache TTL (default: `21600`, or 6 hours)
 
 If a request includes `model`, the gateway forwards it unchanged. If `model` is omitted, the gateway chooses `CODEX_GATEWAY_DEFAULT_MODEL`, then the first API-supported model from the Codex backend model list, then `CODEX_GATEWAY_FALLBACK_MODEL`.
+
+## Known limitations
+- The current stateless Codex backend path rejects `previous_response_id` with `Unsupported parameter: previous_response_id`. Do not rely on it for multi-turn state; send the needed history in `input` instead.
+- The gateway currently does not implement the official Conversations API (`POST /v1/conversations`), so `conversation` is not a supported state mechanism.
+- If a request omits `prompt_cache_key`, the gateway currently omits Codex session/cache fields rather than sending empty placeholders. If Codex backend behavior changes and requires a session id, the gateway should supply a valid id instead of `null` or an empty string.
+- `examples/06_previous_response_id_probe.py` and `examples/07_conversation_probe.py` are kept as experimental probes for state-related official parameters, not as recommended client patterns.
 
 ## Upstream endpoints
 - Responses: `https://chatgpt.com/backend-api/codex/responses`
@@ -147,3 +178,5 @@ If a request includes `model`, the gateway forwards it unchanged. If `model` is 
 - Broader test coverage for malformed SSE, concurrency, and network faults.
 
 See `docs/design-principles.md` for the project compatibility and proxy design principles.
+See `docs/include-capability-matrix.md` for current `include` compatibility probe results.
+See `docs/parameter-capability-matrix.md` for current parameter compatibility probe results.

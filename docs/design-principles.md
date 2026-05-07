@@ -33,8 +33,27 @@ This project is a lightweight OAuth gateway for routing local or internal OpenAI
 - Use OpenAI Responses API field names and structure wherever possible.
 - Accept caller-provided fields such as `model`, `input`, `instructions`, `stream`, `reasoning`, `text`, `include`, and future Responses API fields without forcing callers into gateway-specific names.
 - Only transform what is required for the Codex upstream contract, such as OAuth headers, input shape compatibility, stateless settings, and required include values.
+- For Codex response generation, the upstream request must use `store=false`.
+- For Codex response generation, the upstream request must include `reasoning.encrypted_content` in `include`. This is a Codex backend requirement for the stateless response flow, not a gateway preference.
+- Caller-provided `reasoning.effort` and `reasoning.summary` values should be preserved. Current probe results for reasoning parameter behavior are recorded in `docs/parameter-capability-matrix.md`.
+- The current stateless Codex backend path rejects `previous_response_id`. The gateway should not simulate stored response state or promote this field as a supported multi-turn mechanism.
+- The gateway currently does not implement the official Conversations API. Do not generate or manage `conversation.id` values inside the gateway.
+- Codex session/cache fields should not be represented with empty placeholders. If the caller omits `prompt_cache_key`, the gateway currently omits `prompt_cache_key`, `session_id`, and `conversation_id` rather than sending `null` or an empty string.
+- If the Codex backend requires a session id in the future, the gateway should supply a valid generated or caller-provided id. Do not send empty `session_id` values.
 - Unknown optional fields should be preserved unless they are known to be incompatible with the upstream endpoint.
 - Explicit caller-provided `model` values should be forwarded unchanged. The gateway should not silently rewrite unknown or future model ids.
+- Caller-provided `service_tier` should be forwarded unchanged. If the caller omits `service_tier`, the gateway should not fill it; the Codex backend then uses its default standard speed.
+- `/codex/models` fields such as `service_tiers` and `additional_speed_tiers` should be treated as capability or display metadata, not as the current user speed setting and not as the current request speed state.
+
+### State And Session Fields
+
+| System                        | Field                  | Location    | Meaning                                                                 |
+| ----------------------------- | ---------------------- | ----------- | ----------------------------------------------------------------------- |
+| OpenAI official Responses API | `conversation`         | JSON body   | Official conversation object or conversation id for the Conversations API |
+| OpenAI official Responses API | `previous_response_id` | JSON body   | Continue from a previous response                                       |
+| Codex backend private protocol | `session_id`           | HTTP header | Codex internal session/thread identifier                                |
+| Codex backend private protocol | `x-client-request-id`  | HTTP header | Request correlation/tracing id; Codex CLI uses the same internal id      |
+| Codex backend private protocol | `prompt_cache_key`     | JSON body   | Cache hit key; Codex CLI fills it with the internal thread id            |
 
 ## Model Discovery And Selection
 

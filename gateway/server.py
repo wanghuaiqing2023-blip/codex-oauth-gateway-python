@@ -271,6 +271,15 @@ def _read_json_body(handler: BaseHTTPRequestHandler) -> dict:
         raise GatewayError(400, "INVALID_JSON", "Request body must be valid JSON.")
 
 
+def _copy_object_field(body: dict, field_name: str) -> dict:
+    value = body.get(field_name)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise GatewayError(400, "INVALID_REQUEST_FIELD", f"Request body field '{field_name}' must be an object.")
+    return dict(value)
+
+
 def _transform_body(body: dict) -> dict:
     if "input" not in body:
         raise GatewayError(400, "MISSING_INPUT", "Request body must include an input field.")
@@ -280,6 +289,11 @@ def _transform_body(body: dict) -> dict:
         input_value = [{"role": "user", "content": input_value}]
 
     include = list(dict.fromkeys((body.get("include") or []) + ["reasoning.encrypted_content"]))
+    reasoning = _copy_object_field(body, "reasoning")
+    reasoning.setdefault("effort", "medium")
+    reasoning.setdefault("summary", "auto")
+    text = _copy_object_field(body, "text")
+    text.setdefault("verbosity", "medium")
     return {
         **body,
         "input": input_value,
@@ -287,13 +301,8 @@ def _transform_body(body: dict) -> dict:
         "store": False,
         "stream": True,
         "instructions": body.get("instructions") or DEFAULT_INSTRUCTIONS,
-        "reasoning": {
-            "effort": (body.get("reasoning") or {}).get("effort", "medium"),
-            "summary": (body.get("reasoning") or {}).get("summary", "auto"),
-        },
-        "text": {
-            "verbosity": (body.get("text") or {}).get("verbosity", "medium"),
-        },
+        "reasoning": reasoning,
+        "text": text,
         "include": include,
     }
 

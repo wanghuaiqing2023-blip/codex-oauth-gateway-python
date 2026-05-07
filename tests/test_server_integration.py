@@ -9,7 +9,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from gateway import auth, server
-from gateway.server import GatewayHandler
+from gateway.errors import GatewayError
+from gateway.server import GatewayHandler, _transform_body
 
 
 def _jwt_with_account(account_id: str) -> str:
@@ -17,6 +18,112 @@ def _jwt_with_account(account_id: str) -> str:
         json.dumps({"https://api.openai.com/auth": {"chatgpt_account_id": account_id}}).encode("utf-8")
     ).decode("utf-8").rstrip("=")
     return f"a.{payload}.c"
+
+
+class RequestTransformTests(unittest.TestCase):
+    def test_transform_body_preserves_openai_top_level_create_parameters(self):
+        """Intent: protect top-level OpenAI Responses parameters that the gateway should transparently forward."""
+        body = {
+            "model": "gpt-5.2",
+            "input": [{"role": "user", "content": "hi"}],
+            "instructions": "Be concise.",
+            "max_output_tokens": 128,
+            "metadata": {"trace_id": "case-1"},
+            "temperature": 0.2,
+            "top_p": 0.9,
+            "truncation": "auto",
+            "prompt_cache_key": "cache-key-1",
+            "tools": [
+                {
+                    "type": "function",
+                    "name": "lookup",
+                    "description": "Lookup a value.",
+                    "parameters": {"type": "object", "properties": {}},
+                }
+            ],
+            "tool_choice": {"type": "function", "name": "lookup"},
+            "parallel_tool_calls": False,
+        }
+
+        transformed = _transform_body(body)
+
+        for field in [
+            "model",
+            "instructions",
+            "max_output_tokens",
+            "metadata",
+            "temperature",
+            "top_p",
+            "truncation",
+            "prompt_cache_key",
+            "tools",
+            "tool_choice",
+            "parallel_tool_calls",
+        ]:
+            self.assertEqual(transformed[field], body[field])
+        self.assertEqual(transformed["input"], body["input"])
+
+    def test_transform_body_merges_nested_reasoning_and_text_options(self):
+        """Intent: preserve nested official/future options while adding only missing gateway defaults."""
+        body = {
+            "model": "gpt-5.2",
+            "input": "return json",
+            "reasoning": {"effort": "high", "future_reasoning_option": "keep-me"},
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "answer",
+                    "schema": {"type": "object", "properties": {"answer": {"type": "string"}}},
+                },
+                "verbosity": "low",
+            },
+        }
+
+        transformed = _transform_body(body)
+
+        self.assertEqual(
+            transformed["reasoning"],
+            {"effort": "high", "future_reasoning_option": "keep-me", "summary": "auto"},
+        )
+        self.assertEqual(transformed["text"], body["text"])
+
+    def test_transform_body_documents_gateway_transport_overrides(self):
+        """Intent: document Codex backend protocol requirements: always stream upstream and do not store."""
+        transformed = _transform_body(
+            {
+                "model": "gpt-5.2",
+                "input": "hello",
+                "stream": False,
+                "store": True,
+            }
+        )
+
+        self.assertEqual(transformed["input"], [{"role": "user", "content": "hello"}])
+        self.assertTrue(transformed["stream"])
+        self.assertFalse(transformed["store"])
+        self.assertTrue(transformed["instructions"])
+        self.assertEqual(transformed["reasoning"], {"effort": "medium", "summary": "auto"})
+        self.assertEqual(transformed["text"], {"verbosity": "medium"})
+
+    def test_transform_body_deduplicates_include_and_adds_reasoning_content(self):
+        """Intent: keep caller include fields while adding Codex-required encrypted reasoning content exactly once."""
+        transformed = _transform_body(
+            {
+                "model": "gpt-5.2",
+                "input": "hello",
+                "include": ["output_text", "reasoning.encrypted_content", "output_text"],
+            }
+        )
+
+        self.assertEqual(transformed["include"], ["output_text", "reasoning.encrypted_content"])
+
+    def test_transform_body_rejects_invalid_nested_objects(self):
+        """Intent: return a controlled gateway error instead of a 500 when SDK object parameters are malformed."""
+        with self.assertRaises(GatewayError) as context:
+            _transform_body({"model": "gpt-5.2", "input": "hello", "text": "plain"})
+
+        self.assertEqual(context.exception.status, 400)
+        self.assertEqual(context.exception.code, "INVALID_REQUEST_FIELD")
 
 
 class ServerIntegrationTests(unittest.TestCase):
@@ -501,6 +608,168 @@ class ServerIntegrationTests(unittest.TestCase):
                 auth.TOKEN_FILE = original_auth_token_file
                 server.TOKEN_FILE = original_server_token_file
                 server.DEFAULT_GATEWAY_MODEL = original_default_model
+
+    @patch("gateway.server.requests.post")
+    def test_v1_prompt_cache_key_sets_codex_cache_headers(self, mock_post):
+        """Intent: ensure OpenAI prompt_cache_key is forwarded and also mapped to Codex cache/session headers."""
+        class FakeResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+            text = 'data: {"type":"response.completed","response":{"id":"resp_1","output":[]}}\n'
+
+            @staticmethod
+            def iter_content(chunk_size=1024):
+                yield b""
+
+        mock_post.return_value = FakeResponse()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            token_file = Path(tmpdir) / "openai.json"
+            token_file.write_text(
+                json.dumps(
+                    {
+                        "type": "oauth",
+                        "access": _jwt_with_account("acct_test"),
+                        "refresh": "refresh_1",
+                        "expires": int(time.time() * 1000) + 3600 * 1000,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            original_auth_token_file = auth.TOKEN_FILE
+            original_server_token_file = server.TOKEN_FILE
+            auth.TOKEN_FILE = token_file
+            server.TOKEN_FILE = token_file
+            try:
+                conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
+                body = json.dumps(
+                    {
+                        "model": "gpt-5.2",
+                        "stream": False,
+                        "input": "hello",
+                        "prompt_cache_key": "cache-key-1",
+                    }
+                ).encode("utf-8")
+                conn.request(
+                    "POST",
+                    "/v1/responses",
+                    body=body,
+                    headers={"content-type": "application/json", "authorization": "Bearer local-test-key"},
+                )
+                response = conn.getresponse()
+                self.assertEqual(response.status, 200)
+                response.read()
+
+                called_json = mock_post.call_args.kwargs["json"]
+                called_headers = mock_post.call_args.kwargs["headers"]
+                self.assertEqual(called_json["prompt_cache_key"], "cache-key-1")
+                self.assertEqual(called_headers[server.OPENAI_HEADERS["conversation_id"]], "cache-key-1")
+                self.assertEqual(called_headers[server.OPENAI_HEADERS["session_id"]], "cache-key-1")
+                conn.close()
+            finally:
+                auth.TOKEN_FILE = original_auth_token_file
+                server.TOKEN_FILE = original_server_token_file
+
+    @patch("gateway.server.requests.post")
+    def test_v1_omitted_prompt_cache_key_does_not_send_empty_session_placeholders(self, mock_post):
+        """Intent: ensure omitted prompt_cache_key stays omitted instead of becoming null or empty Codex session fields."""
+        class FakeResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+            text = 'data: {"type":"response.completed","response":{"id":"resp_1","output":[]}}\n'
+
+            @staticmethod
+            def iter_content(chunk_size=1024):
+                yield b""
+
+        mock_post.return_value = FakeResponse()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            token_file = Path(tmpdir) / "openai.json"
+            token_file.write_text(
+                json.dumps(
+                    {
+                        "type": "oauth",
+                        "access": _jwt_with_account("acct_test"),
+                        "refresh": "refresh_1",
+                        "expires": int(time.time() * 1000) + 3600 * 1000,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            original_auth_token_file = auth.TOKEN_FILE
+            original_server_token_file = server.TOKEN_FILE
+            auth.TOKEN_FILE = token_file
+            server.TOKEN_FILE = token_file
+            try:
+                conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
+                body = json.dumps(
+                    {
+                        "model": "gpt-5.2",
+                        "stream": False,
+                        "input": "hello",
+                    }
+                ).encode("utf-8")
+                conn.request(
+                    "POST",
+                    "/v1/responses",
+                    body=body,
+                    headers={"content-type": "application/json", "authorization": "Bearer local-test-key"},
+                )
+                response = conn.getresponse()
+                self.assertEqual(response.status, 200)
+                response.read()
+
+                called_json = mock_post.call_args.kwargs["json"]
+                called_headers = mock_post.call_args.kwargs["headers"]
+                self.assertNotIn("prompt_cache_key", called_json)
+                self.assertNotIn(server.OPENAI_HEADERS["conversation_id"], called_headers)
+                self.assertNotIn(server.OPENAI_HEADERS["session_id"], called_headers)
+                conn.close()
+            finally:
+                auth.TOKEN_FILE = original_auth_token_file
+                server.TOKEN_FILE = original_server_token_file
+
+    @patch("gateway.server._get_upstream_auth", return_value=("access-token", "acct_test"))
+    @patch("gateway.server.requests.post")
+    def test_v1_store_false_stays_false_upstream(self, mock_post, mock_get_upstream_auth):
+        """Intent: ensure the recommended explicit store=false setting is sent upstream unchanged."""
+        class FakeResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+            text = 'data: {"type":"response.completed","response":{"id":"resp_1","output":[]}}\n'
+
+            @staticmethod
+            def iter_content(chunk_size=1024):
+                yield b""
+
+        mock_post.return_value = FakeResponse()
+
+        conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
+        body = json.dumps(
+            {
+                "model": "gpt-5.2",
+                "stream": False,
+                "store": False,
+                "input": "hello",
+            }
+        ).encode("utf-8")
+        conn.request(
+            "POST",
+            "/v1/responses",
+            body=body,
+            headers={"content-type": "application/json", "authorization": "Bearer local-test-key"},
+        )
+        response = conn.getresponse()
+        self.assertEqual(response.status, 200)
+        response.read()
+
+        called_json = mock_post.call_args.kwargs["json"]
+        self.assertFalse(called_json["store"])
+        mock_get_upstream_auth.assert_called_once()
+        conn.close()
 
     @patch("gateway.server.requests.post")
     def test_v1_stream_path_passthrough(self, mock_post):
