@@ -112,39 +112,33 @@ backend recognizes the official MCP shape.
 
 ## Result Files
 
-Primary aggregate:
+The old aggregate runner under `execute_test_plan/` has been removed. Tool
+probes now live under `examples/tool/`, grouped by exact tool family:
 
-- `execute_test_plan/tool_capability_results.md`
-- `execute_test_plan/tool_capability_results.json`
-
-Focused probes:
-
-- `execute_test_plan/web_search/web_search_tool_matrix_results.md`
-- `execute_test_plan/image_generation/image_generation_tool_matrix_results.md`
-- `execute_test_plan/image_generation/image_generation_edit_matrix_results.md`
-- `execute_test_plan/function/function_tool_roundtrip_response1.json`
-- `execute_test_plan/function/function_tool_roundtrip_response2.json`
-- `execute_test_plan/function/namespace_function_roundtrip_results.md`
-- `execute_test_plan/custom/custom_text_tool_roundtrip_response1.json`
-- `execute_test_plan/custom/custom_text_tool_roundtrip_response2.json`
-- `execute_test_plan/tool_search/tool_search_call_probe_results.md`
-- `execute_test_plan/tool_search/tool_search_hit_roundtrip_results.md`
-- `execute_test_plan/tool_search/tool_search_empty_result_results.md`
-- `execute_test_plan/openai_mcp/openai_mcp_remote_negative_results.md`
-- `execute_test_plan/openai_mcp/openai_mcp_remote_negative_response.json`
-- `execute_test_plan/openai_mcp/openai_mcp_connector_negative_results.md`
-- `execute_test_plan/openai_mcp/openai_mcp_connector_negative_response.json`
-- `execute_test_plan/openai_shell/openai_shell_local_results.md`
-- `execute_test_plan/openai_shell/openai_shell_local_response1.json`
-- `execute_test_plan/openai_shell/openai_shell_hosted_results.md`
-- `execute_test_plan/openai_shell/openai_shell_hosted_response.json`
-- `execute_test_plan/shell/shell_command_roundtrip_results.md`
-- `execute_test_plan/shell/shell_roundtrip_results.md`
-- `execute_test_plan/shell/exec_command_roundtrip_results.md`
-- `execute_test_plan/apply_patch/apply_patch_function_roundtrip_results.md`
-- `execute_test_plan/apply_patch/apply_patch_article_edit_results.md`
-- `execute_test_plan/local_shell/local_shell_call_probe_results.md`
-- `execute_test_plan/local_shell/local_shell_roundtrip_results.md`
+- `examples/tool/web_search/01_matrix.py`
+- `examples/tool/image_generation/01_basic.py`
+- `examples/tool/image_generation/02_tool_matrix.py`
+- `examples/tool/image_generation/03_edit_matrix.py`
+- `examples/tool/function/01_roundtrip.py`
+- `examples/tool/function/02_namespace_roundtrip.py`
+- `examples/tool/custom/01_text_tool.py`
+- `examples/tool/custom/02_regex_grammar.py`
+- `examples/tool/custom/03_text_tool_roundtrip.py`
+- `examples/tool/tool_search/01_call.py`
+- `examples/tool/tool_search/02_hit_roundtrip.py`
+- `examples/tool/tool_search/03_empty_result_roundtrip.py`
+- `examples/tool/openai_mcp/01_remote_negative.py`
+- `examples/tool/openai_mcp/02_connector_negative.py`
+- `examples/tool/openai_shell/01_local.py`
+- `examples/tool/openai_shell/02_hosted.py`
+- `examples/tool/shell_function/01_shell_command_roundtrip.py`
+- `examples/tool/shell_function/02_shell_roundtrip.py`
+- `examples/tool/shell_function/03_exec_command_roundtrip.py`
+- `examples/tool/apply_patch/01_freeform_probe.py`
+- `examples/tool/apply_patch/02_function_roundtrip.py`
+- `examples/tool/apply_patch/03_article_edit.py`
+- `examples/tool/local_shell/01_call.py`
+- `examples/tool/local_shell/02_roundtrip.py`
 
 ## Completion Notes
 

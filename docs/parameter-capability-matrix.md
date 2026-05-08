@@ -9,7 +9,8 @@ Scope:
 - Client surface: official OpenAI Python SDK through `base_url=http://127.0.0.1:8787/v1`.
 - Gateway target: ChatGPT OAuth Codex backend path.
 - Date of observations: 2026-05-02.
-- Probe files: `examples/16_*` and later.
+- Probe files: `examples/<parameter>/...`, with one directory per tested
+  Responses API parameter.
 
 ## Reasoning Effort And Summary
 
@@ -35,13 +36,13 @@ The goal of this probe is to separate three questions:
 Probe file:
 
 ```text
-examples/27_param_reasoning_effort_summary_matrix_probe.py
+examples/reasoning/02_effort_summary_matrix.py
 ```
 
 Run command:
 
 ```powershell
-python examples/27_param_reasoning_effort_summary_matrix_probe.py
+python examples/reasoning/02_effort_summary_matrix.py
 ```
 
 Method:
@@ -160,13 +161,13 @@ This probe is designed to answer three questions:
 Probe file:
 
 ```text
-examples/28_param_text_verbosity_probe.py
+examples/text_verbosity/01_matrix.py
 ```
 
 Run command:
 
 ```powershell
-python examples/28_param_text_verbosity_probe.py
+python examples/text_verbosity/01_matrix.py
 ```
 
 Method:
@@ -206,7 +207,7 @@ not a complete measure of answer detail.
 
 ### Expected Output Shape
 
-`28_param_text_verbosity_probe.py` first prints model metadata and observed
+`examples/text_verbosity/01_matrix.py` first prints model metadata and observed
 actual models. The actual model is collected from real backend responses, not
 inferred from `/codex/models`.
 
@@ -245,9 +246,8 @@ The probe then prints one row per tested verbosity value:
 
 ### Current Status
 
-The probe has been implemented, but no project-level result matrix is recorded
-yet. Run `examples/28_param_text_verbosity_probe.py` against a live gateway and
-record the observed table here.
+Run `examples/text_verbosity/01_matrix.py` against a live gateway to refresh
+the observed table.
 
 ## Service Tier
 
@@ -269,33 +269,41 @@ request speed, or whether a previous request changed any state.
 
 ### Probe Method
 
-Probe file:
+Probe directory:
 
 ```text
-examples/29_param_service_tier_probe.py
+examples/service_tier/
 ```
 
-Run command:
+Run commands:
 
 ```powershell
-python examples/29_param_service_tier_probe.py
+python examples/service_tier/01_omitted.py
+python examples/service_tier/02_priority.py
+python examples/service_tier/03_auto.py
+python examples/service_tier/04_default.py
+python examples/service_tier/05_flex.py
+python examples/service_tier/06_scale.py
+python examples/service_tier/07_fast_alias.py
 ```
 
 Method:
 
-1. Keep the reasoning and text settings fixed:
+1. Each script uses the OpenAI Python SDK directly and calls
+   `client.responses.create(...)` without importing shared probe helpers.
+2. Keep the reasoning and text settings fixed:
 
 ```json
 {"reasoning":{"effort":"medium","summary":"auto"},"text":{"verbosity":"low"}}
 ```
 
-2. Send the same exact-answer prompt for every case:
+3. Send the same exact-answer prompt for every case:
 
 ```text
 Reply exactly: service-tier-probe-ok
 ```
 
-3. Test these request-body cases:
+4. Test these request-body cases:
 
 ```text
 omitted
@@ -303,12 +311,13 @@ priority
 auto
 default
 flex
+scale
 fast
 ```
 
-4. Record request acceptance, upstream `actual_model`, response status,
-   response `service_tier`, elapsed milliseconds, final `output_text`, and the
-   full backend error observation for rejected values.
+5. Record request acceptance, upstream `actual_model`, response status,
+   response `service_tier`, final `output_text`, and the backend error
+   observation for rejected values.
 
 The probe intentionally does not call `/codex/models` after each request,
 because `/codex/models` is not a current-speed state API.
@@ -318,31 +327,33 @@ because `/codex/models` is not a current-speed state API.
 Last recorded real-backend observation:
 
 ```text
-+----------+-------------------+----------+--------------+-----------------+-----------------------+-----------------------+-------------------------------------+
-| case     | sent_service_tier | status   | actual_model | response_status | response_service_tier | output_text           | observation                         |
-+----------+-------------------+----------+--------------+-----------------+-----------------------+-----------------------+-------------------------------------+
-| omitted  | <absent>          | accepted | gpt-5.4      | completed       | default               | service-tier-probe-ok | request accepted                    |
-| priority | priority          | accepted | gpt-5.4      | completed       | default               | service-tier-probe-ok | request accepted                    |
-| auto     | auto              | rejected |              |                 |                       |                       | Unsupported service_tier: auto      |
-| default  | default           | rejected |              |                 |                       |                       | Unsupported service_tier: default   |
-| flex     | flex              | rejected |              |                 |                       |                       | Unsupported service_tier: flex      |
-| fast     | fast              | rejected |              |                 |                       |                       | Unsupported service_tier: fast      |
-+----------+-------------------+----------+--------------+-----------------+-----------------------+-----------------------+-------------------------------------+
++------------+-------------------+------------------+--------------+-----------------+-----------------------+-----------------------+-------------------------------------+
+| case       | sent_service_tier | status           | actual_model | response_status | response_service_tier | output_text           | observation                         |
++------------+-------------------+------------------+--------------+-----------------+-----------------------+-----------------------+-------------------------------------+
+| omitted    | <absent>          | accepted         | gpt-5.4      | completed       | default               | service-tier-probe-ok | request accepted                    |
+| priority   | priority          | accepted         | gpt-5.4      | completed       | default               | service-tier-probe-ok | request accepted                    |
+| auto       | auto              | backend_rejected |              |                 |                       |                       | Unsupported service_tier: auto      |
+| default    | default           | backend_rejected |              |                 |                       |                       | Unsupported service_tier: default   |
+| flex       | flex              | backend_rejected |              |                 |                       |                       | Unsupported service_tier: flex      |
+| scale      | scale             | backend_rejected |              |                 |                       |                       | Unsupported service_tier: scale     |
+| fast_alias | fast              | backend_rejected |              |                 |                       |                       | Unsupported service_tier: fast      |
++------------+-------------------+------------------+--------------+-----------------+-----------------------+-----------------------+-------------------------------------+
 ```
 
 ### Interpretation
 
 ```text
-+----------+----------------------------------------------------------------------+
-| case     | interpretation                                                       |
-+----------+----------------------------------------------------------------------+
-| omitted  | Uses Codex backend default standard speed.                           |
-| priority | Accepted backend wire value for fast/priority speed.                 |
-| auto     | Official OpenAI value, but rejected by the current Codex backend path.|
-| default  | Official OpenAI value, but rejected by the current Codex backend path.|
-| flex     | Official OpenAI value, but rejected by the current Codex backend path.|
-| fast     | Codex CLI/UI alias; not accepted as the backend wire value.           |
-+----------+----------------------------------------------------------------------+
++------------+----------------------------------------------------------------------+
+| case       | interpretation                                                       |
++------------+----------------------------------------------------------------------+
+| omitted    | Baseline only: field absent, backend uses default standard speed.     |
+| priority   | Accepted backend wire value for fast/priority speed.                 |
+| auto       | Official OpenAI value, but rejected by the current Codex backend path.|
+| default    | Official OpenAI value, but rejected by the current Codex backend path.|
+| flex       | Official OpenAI value, but rejected by the current Codex backend path.|
+| scale      | Official OpenAI value, but rejected by the current Codex backend path.|
+| fast_alias | Codex CLI/UI alias; not accepted as the backend wire value.           |
++------------+----------------------------------------------------------------------+
 ```
 
 ### Gateway Implications
@@ -375,13 +386,13 @@ official OpenAI API shape and the Codex backend path.
 Probe file:
 
 ```text
-examples/30_param_metadata_probe.py
+examples/metadata/01_basic.py
 ```
 
 Run command:
 
 ```powershell
-python examples/30_param_metadata_probe.py
+python examples/metadata/01_basic.py
 ```
 
 Method:

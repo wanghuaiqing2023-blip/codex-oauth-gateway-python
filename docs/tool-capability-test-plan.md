@@ -113,7 +113,7 @@ This table is the high-level plan for all currently visible tool candidates.
 Suggested probe:
 
 ```text
-examples/31_tool_capability_discovery_probe.py
+examples/models/02_capabilities.py
 ```
 
 Purpose:
@@ -143,7 +143,7 @@ Test intent:
 Suggested probe:
 
 ```text
-examples/32_tool_web_search_variants_probe.py
+examples/tool/web_search/01_matrix.py
 ```
 
 The Codex CLI source shows that `supports_search_tool` maps to the
@@ -188,8 +188,8 @@ Current evidence:
 Suggested probes:
 
 ```text
-examples/33_tool_function_calling_probe.py
-examples/34_tool_function_call_output_probe.py
+examples/tool/function/01_roundtrip.py
+examples/tool/function/02_namespace_roundtrip.py
 ```
 
 Function calling is one of the most important official OpenAI tool mechanisms.
@@ -231,7 +231,7 @@ API tools.
 Existing probe:
 
 ```text
-examples/13_include_file_search_results_probe.py
+examples/include/06_file_search_results.py
 ```
 
 Current status:
@@ -264,7 +264,7 @@ Important interpretation:
 Existing probe:
 
 ```text
-examples/14_include_code_interpreter_outputs_probe.py
+examples/include/07_code_interpreter_outputs.py
 ```
 
 Current observation:
@@ -283,7 +283,7 @@ Current verdict:
 Existing probe:
 
 ```text
-examples/15_include_computer_output_image_url_probe.py
+examples/include/08_computer_output_image_url.py
 ```
 
 Current observation:
@@ -299,10 +299,10 @@ Current verdict:
 
 ### `image_generation`
 
-Suggested probe:
+Probe:
 
 ```text
-examples/35_tool_image_generation_probe.py
+examples/tool/image_generation/01_basic.py
 ```
 
 Reason to test:
@@ -330,10 +330,10 @@ Remote MCP uses `server_url`; connectors use `connector_id` and normally also
 require user authorization. These are different from local Codex MCP servers
 used by Codex itself.
 
-Result files live under:
+Probes live under:
 
 ```text
-execute_test_plan/openai_mcp/
+examples/tool/openai_mcp/
 ```
 
 Negative test cases:
@@ -384,10 +384,10 @@ Test intent:
 - Record that `skill_reference` belongs to hosted shell/container environments,
   not to a top-level `tools=[{"type":"skill"}]` entry.
 
-Result files live under:
+Probes live under:
 
 ```text
-execute_test_plan/openai_shell/
+examples/tool/openai_shell/
 ```
 
 Current official shell live observations:
@@ -484,15 +484,22 @@ Current wire-layer tool-shape live observations:
 Tool probes should reuse and cross-reference the existing parameter probes:
 
 ```text
-+---------------------+-----------------------------------------+-------------------------------+
-| Parameter           | Existing probes                         | Tool-related purpose          |
-+---------------------+-----------------------------------------+-------------------------------+
-| tool_choice=auto    | 21_param_tool_choice_auto_probe         | Model may call tools.         |
-| tool_choice=none    | 22_param_tool_choice_none_probe         | Tool calls should be blocked. |
-| tool_choice=required| 23_param_tool_choice_required_probe     | Model must call a tool.       |
-| parallel_tool_calls | 24/25_param_parallel_tool_calls_*       | Backend accepts parallel flag.|
-| include             | 11/12/13/14/15 include probes           | Return extra tool artifacts.  |
-+---------------------+-----------------------------------------+-------------------------------+
++------------------------------+---------------------------------------------------+-------------------------------+
+| Parameter                    | Existing probes                                   | Tool-related purpose          |
++------------------------------+---------------------------------------------------+-------------------------------+
+| tool_choice=auto             | examples/tool_choice/01_auto.py                   | Model may call tools.         |
+| tool_choice=none             | examples/tool_choice/02_none.py                   | Tool calls should be blocked. |
+| tool_choice=required         | examples/tool_choice/03_required.py               | Model must call a tool.       |
+| tool_choice function object  | examples/tool_choice/04_function_object.py        | Force a named function tool.  |
+| tool_choice custom object    | examples/tool_choice/05_custom_object.py          | Force a named custom tool.    |
+| tool_choice allowed_tools    | examples/tool_choice/06_allowed_tools_object.py   | Limit allowed tools.          |
+| tool_choice image_generation | examples/tool_choice/07_image_generation_object.py| Force image generation.       |
+| tool_choice shell object     | examples/tool_choice/08_shell_object.py           | Force official shell tool.    |
+| tool_choice mcp object       | examples/tool_choice/09_mcp_object.py             | Force official MCP tool.      |
+| tool_choice apply_patch      | examples/tool_choice/10_apply_patch_object.py     | Force apply_patch tool.       |
+| parallel_tool_calls          | examples/parallel_tool_calls/                     | Backend accepts parallel flag.|
+| include                      | examples/include/                                 | Return extra tool artifacts.  |
++------------------------------+---------------------------------------------------+-------------------------------+
 ```
 
 ## Reporting Format

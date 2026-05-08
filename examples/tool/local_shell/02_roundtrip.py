@@ -1,0 +1,499 @@
+from __future__ import annotations
+
+import json
+import os
+import time
+from pathlib import Path
+from typing import Any
+
+from openai import APIStatusError, OpenAI, OpenAIError
+
+
+BASE_URL = os.getenv("CODEX_GATEWAY_BASE_URL", "http://127.0.0.1:8787/v1")
+API_KEY = os.getenv("CODEX_GATEWAY_API_KEY", "local-dummy-key")
+MODEL = os.getenv("CODEX_GATEWAY_MODEL", "gpt-5.2")
+OUTPUT_DIR = Path(__file__).resolve().parent
+
+LOCAL_SHELL_TOOL = {"type": "local_shell"}
+SAFE_COMMAND = ["python", "--version"]
+SIMULATED_SHELL_OUTPUT = (
+    "Exit code: 0\n"
+    "Wall time: 0.01 seconds\n"
+    "Output:\n"
+    "gateway-local-shell-roundtrip-ok\n"
+)
+
+
+def build_client() -> OpenAI:
+    return OpenAI(base_url=BASE_URL, api_key=API_KEY, max_retries=0)
+
+
+def response_to_dict(response: Any) -> dict[str, Any]:
+    if hasattr(response, "model_dump"):
+        return response.model_dump(mode="json")
+    if hasattr(response, "to_dict"):
+        return response.to_dict()
+    return json.loads(json.dumps(response, default=str))
+
+
+def error_message(error: BaseException) -> str:
+    if isinstance(error, APIStatusError):
+        try:
+            payload = error.response.json()
+        except Exception:
+            return error.response.text
+        if isinstance(payload, dict):
+            upstream = payload.get("error")
+            if isinstance(upstream, dict):
+                return str(upstream.get("message") or upstream)
+        return json.dumps(payload, ensure_ascii=False)
+    return str(error)
+
+
+def find_objects_by_type(value: Any, object_type: str, path: str = "$") -> list[tuple[str, dict[str, Any]]]:
+    if isinstance(value, dict):
+        matches: list[tuple[str, dict[str, Any]]] = []
+        if value.get("type") == object_type:
+            matches.append((path, value))
+        for child_key, child_value in value.items():
+            matches.extend(find_objects_by_type(child_value, object_type, f"{path}.{child_key}"))
+        return matches
+    if isinstance(value, list):
+        matches = []
+        for index, child_value in enumerate(value):
+            matches.extend(find_objects_by_type(child_value, object_type, f"{path}[{index}]"))
+        return matches
+    return []
+
+
+def find_local_shell_call(payload: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    matches = find_objects_by_type(payload, "local_shell_call")
+    return matches[0] if matches else None
+
+
+def output_item_types(payload: dict[str, Any]) -> list[str]:
+    output = payload.get("output")
+    if not isinstance(output, list):
+        return []
+    return [str(item.get("type", "<missing>")) for item in output if isinstance(item, dict)]
+
+
+def output_text(response: Any, payload: dict[str, Any]) -> str:
+    sdk_output_text = getattr(response, "output_text", None)
+    if isinstance(sdk_output_text, str):
+        return sdk_output_text
+
+    texts: list[str] = []
+    for item in payload.get("output") or []:
+        if not isinstance(item, dict):
+            continue
+        for content in item.get("content") or []:
+            if isinstance(content, dict) and isinstance(content.get("text"), str):
+                texts.append(content["text"])
+    return "".join(texts)
+
+
+def action_command(local_shell_call: dict[str, Any]) -> list[str]:
+    action = local_shell_call.get("action")
+    if not isinstance(action, dict):
+        return []
+    command = action.get("command")
+    if not isinstance(command, list):
+        return []
+    return [str(part) for part in command]
+
+
+def make_local_shell_call_context_item(local_shell_call: dict[str, Any]) -> dict[str, Any]:
+    action = local_shell_call.get("action")
+    if not isinstance(action, dict):
+        action = {"type": "exec", "command": action_command(local_shell_call)}
+    item = {
+        "type": "local_shell_call",
+        "call_id": local_shell_call["call_id"],
+        "status": local_shell_call.get("status") or "completed",
+        "action": action,
+    }
+    if local_shell_call.get("id"):
+        item["id"] = local_shell_call["id"]
+    return item
+
+
+def format_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (list, dict, tuple)):
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
+    return str(value)
+
+
+def print_table(headers: list[str], rows: list[list[Any]]) -> None:
+    values = [[format_value(value) for value in row] for row in rows]
+    widths = [len(header) for header in headers]
+    for row in values:
+        if len(row) != len(headers):
+            raise ValueError(f"row has {len(row)} columns, expected {len(headers)}")
+        for index, value in enumerate(row):
+            widths[index] = max(widths[index], len(value))
+
+    def format_row(row: list[str]) -> str:
+        return "  ".join(value.ljust(widths[index]) for index, value in enumerate(row)).rstrip()
+
+    print(format_row(headers))
+    print(format_row(["-" * width for width in widths]))
+    for row in values:
+        print(format_row(row))
+
+
+def markdown_table(headers: list[str], rows: list[list[Any]]) -> str:
+    def cell(value: Any) -> str:
+        return format_value(value).replace("|", "\\|").replace("\n", "<br>")
+
+    lines = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join("---" for _ in headers) + " |",
+    ]
+    for row in rows:
+        lines.append("| " + " | ".join(cell(value) for value in row) + " |")
+    return "\n".join(lines)
+
+
+def write_result_files(
+    *,
+    result_json_path: Path,
+    result_md_path: Path,
+    title: str,
+    summary_rows: list[list[Any]],
+    detail_rows: list[list[Any]] | None = None,
+) -> None:
+    headers = [
+        "phase",
+        "status",
+        "actual_model",
+        "response_status",
+        "output_item_types",
+        "elapsed_ms",
+        "call_id",
+        "observation",
+    ]
+    result_json_path.write_text(
+        json.dumps(
+            {
+                "base_url": BASE_URL,
+                "requested_model": MODEL,
+                "summary": [dict(zip(headers, row)) for row in summary_rows],
+                "details": detail_rows or [],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    sections = [
+        f"# {title}",
+        f"- gateway base_url: `{BASE_URL}`",
+        f"- requested_model: `{MODEL}`",
+        "- tool: `local_shell`",
+        "- execution: client-local; this probe does not execute the generated command",
+        "",
+        "## Summary",
+        markdown_table(headers, summary_rows),
+    ]
+    if detail_rows:
+        sections.extend(
+            [
+                "## Details",
+                markdown_table(["key", "value"], detail_rows),
+            ]
+        )
+    result_md_path.write_text("\n\n".join(sections), encoding="utf-8")
+
+
+def make_timing() -> tuple[float, callable]:
+    started = time.perf_counter()
+
+    def elapsed_ms() -> int:
+        return int((time.perf_counter() - started) * 1000)
+
+    return started, elapsed_ms
+
+
+import json
+
+from openai import OpenAIError
+
+
+
+RESPONSE1_JSON_PATH = OUTPUT_DIR / "local_shell_roundtrip_response1.json"
+RESPONSE2_JSON_PATH = OUTPUT_DIR / "local_shell_roundtrip_response2.json"
+RESULT_JSON_PATH = OUTPUT_DIR / "local_shell_roundtrip_results.json"
+RESULT_MD_PATH = OUTPUT_DIR / "local_shell_roundtrip_results.md"
+
+EXPECTED_FINAL_TEXT = "gateway-local-shell-roundtrip-ok"
+PROMPT1 = (
+    "Use the local_shell tool to run exactly this command array: "
+    f"{json.dumps(SAFE_COMMAND)}. Do not answer directly."
+)
+PROMPT2 = (
+    "Use the supplied local shell output to answer. Reply exactly with "
+    "gateway-local-shell-roundtrip-ok and nothing else."
+)
+
+
+def main() -> int:
+    print(f"gateway base_url: {BASE_URL}")
+    print(f"requested_model: {MODEL}")
+    print("tool_type: local_shell")
+    print("intent: verify local_shell_call -> simulated client output -> final answer")
+    print("execution: the command is not executed; this probe supplies a simulated shell result")
+    print("output_item_for_result: function_call_output, matching Codex CLI request invariants")
+    print(f"requested_command: {json.dumps(SAFE_COMMAND)}")
+
+    client = build_client()
+    _, elapsed1_ms = make_timing()
+
+    try:
+        response1 = client.responses.create(
+            model=MODEL,
+            input=PROMPT1,
+            tools=[LOCAL_SHELL_TOOL],
+            tool_choice="required",
+            reasoning={"effort": "low", "summary": "auto"},
+            text={"verbosity": "low"},
+        )
+    except OpenAIError as error:
+        rows = [["phase1_tool_call", "rejected", "", "", [], elapsed1_ms(), "", error_message(error)]]
+        print("\nRoundtrip result:")
+        print_table(
+            [
+                "phase",
+                "status",
+                "actual_model",
+                "response_status",
+                "output_item_types",
+                "elapsed_ms",
+                "call_id",
+                "observation",
+            ],
+            rows,
+        )
+        write_result_files(
+            result_json_path=RESULT_JSON_PATH,
+            result_md_path=RESULT_MD_PATH,
+            title="Local Shell Roundtrip Results",
+            summary_rows=rows,
+        )
+        return 0
+
+    payload1 = response_to_dict(response1)
+    RESPONSE1_JSON_PATH.write_text(json.dumps(payload1, ensure_ascii=False, indent=2), encoding="utf-8")
+    match = find_local_shell_call(payload1)
+    actual_model1 = getattr(response1, "model", None) or payload1.get("model") or ""
+    response_status1 = getattr(response1, "status", None) or payload1.get("status") or ""
+
+    if not match:
+        rows = [
+            [
+                "phase1_tool_call",
+                "accepted_no_local_shell_call",
+                actual_model1,
+                response_status1,
+                output_item_types(payload1),
+                elapsed1_ms(),
+                "",
+                "request accepted but no local_shell_call found",
+            ]
+        ]
+        write_result_files(
+            result_json_path=RESULT_JSON_PATH,
+            result_md_path=RESULT_MD_PATH,
+            title="Local Shell Roundtrip Results",
+            summary_rows=rows,
+            detail_rows=[["response1_json", str(RESPONSE1_JSON_PATH)]],
+        )
+        print("\nRoundtrip result:")
+        print_table(
+            [
+                "phase",
+                "status",
+                "actual_model",
+                "response_status",
+                "output_item_types",
+                "elapsed_ms",
+                "call_id",
+                "observation",
+            ],
+            rows,
+        )
+        return 0
+
+    local_shell_call_path, local_shell_call = match
+    call_id = str(local_shell_call.get("call_id") or "")
+    if not call_id:
+        rows = [
+            [
+                "phase1_tool_call",
+                "missing_call_id",
+                actual_model1,
+                response_status1,
+                output_item_types(payload1),
+                elapsed1_ms(),
+                "",
+                f"{local_shell_call_path} has no call_id",
+            ]
+        ]
+        write_result_files(
+            result_json_path=RESULT_JSON_PATH,
+            result_md_path=RESULT_MD_PATH,
+            title="Local Shell Roundtrip Results",
+            summary_rows=rows,
+            detail_rows=[["response1_json", str(RESPONSE1_JSON_PATH)]],
+        )
+        print("\nRoundtrip result:")
+        print_table(
+            [
+                "phase",
+                "status",
+                "actual_model",
+                "response_status",
+                "output_item_types",
+                "elapsed_ms",
+                "call_id",
+                "observation",
+            ],
+            rows,
+        )
+        return 0
+
+    input2 = [
+        {
+            "role": "user",
+            "content": PROMPT2,
+        },
+        make_local_shell_call_context_item(local_shell_call),
+        {
+            "type": "function_call_output",
+            "call_id": call_id,
+            "output": SIMULATED_SHELL_OUTPUT,
+        },
+    ]
+
+    _, elapsed2_ms = make_timing()
+    try:
+        response2 = client.responses.create(
+            model=MODEL,
+            input=input2,
+            tools=[LOCAL_SHELL_TOOL],
+            reasoning={"effort": "low", "summary": "auto"},
+            text={"verbosity": "low"},
+        )
+    except OpenAIError as error:
+        rows = [
+            [
+                "phase1_tool_call",
+                "supported_protocol",
+                actual_model1,
+                response_status1,
+                output_item_types(payload1),
+                elapsed1_ms(),
+                call_id,
+                f"{local_shell_call_path} found",
+            ],
+            ["phase2_tool_output", "rejected", "", "", [], elapsed2_ms(), call_id, error_message(error)],
+        ]
+        write_result_files(
+            result_json_path=RESULT_JSON_PATH,
+            result_md_path=RESULT_MD_PATH,
+            title="Local Shell Roundtrip Results",
+            summary_rows=rows,
+            detail_rows=[["response1_json", str(RESPONSE1_JSON_PATH)]],
+        )
+        print("\nRoundtrip result:")
+        print_table(
+            [
+                "phase",
+                "status",
+                "actual_model",
+                "response_status",
+                "output_item_types",
+                "elapsed_ms",
+                "call_id",
+                "observation",
+            ],
+            rows,
+        )
+        return 0
+
+    payload2 = response_to_dict(response2)
+    RESPONSE2_JSON_PATH.write_text(json.dumps(payload2, ensure_ascii=False, indent=2), encoding="utf-8")
+    final_text = output_text(response2, payload2)
+    actual_model2 = getattr(response2, "model", None) or payload2.get("model") or ""
+    response_status2 = getattr(response2, "status", None) or payload2.get("status") or ""
+
+    rows = [
+        [
+            "phase1_tool_call",
+            "supported_protocol",
+            actual_model1,
+            response_status1,
+            output_item_types(payload1),
+            elapsed1_ms(),
+            call_id,
+            f"{local_shell_call_path} found",
+        ],
+        [
+            "phase2_tool_output",
+            "supported_roundtrip" if EXPECTED_FINAL_TEXT in final_text else "accepted_without_expected_text",
+            actual_model2,
+            response_status2,
+            output_item_types(payload2),
+            elapsed2_ms(),
+            call_id,
+            "final text contains simulated shell output"
+            if EXPECTED_FINAL_TEXT in final_text
+            else "final text did not contain simulated shell output",
+        ],
+    ]
+    details = [
+        ["local_shell_call_path", local_shell_call_path],
+        ["call_id", call_id],
+        ["command", action_command(local_shell_call)],
+        ["command_matches_request", action_command(local_shell_call) == SAFE_COMMAND],
+        ["simulated_output", SIMULATED_SHELL_OUTPUT],
+        ["response1_json", str(RESPONSE1_JSON_PATH)],
+        ["response2_json", str(RESPONSE2_JSON_PATH)],
+        ["final_output_text", final_text],
+    ]
+
+    print("\nRoundtrip result:")
+    print_table(
+        [
+            "phase",
+            "status",
+            "actual_model",
+            "response_status",
+            "output_item_types",
+            "elapsed_ms",
+            "call_id",
+            "observation",
+        ],
+        rows,
+    )
+    print("\nDetails:")
+    for key, value in details:
+        print(f"{key}: {value}")
+
+    write_result_files(
+        result_json_path=RESULT_JSON_PATH,
+        result_md_path=RESULT_MD_PATH,
+        title="Local Shell Roundtrip Results",
+        summary_rows=rows,
+        detail_rows=details,
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

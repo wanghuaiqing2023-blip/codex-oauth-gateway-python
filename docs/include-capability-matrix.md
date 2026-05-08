@@ -9,7 +9,7 @@ Scope:
 - Client surface: official OpenAI Python SDK through `base_url=http://127.0.0.1:8787/v1`.
 - Gateway target: ChatGPT OAuth Codex backend path.
 - Date of observations: 2026-05-02.
-- Probe files: `examples/08_*` through `examples/15_*`.
+- Probe files: `examples/include/`.
 
 ## Summary Matrix
 
@@ -20,22 +20,22 @@ aligned in source form.
 +----+-----------------------------------------+-----------------------------------------------+------------------+------------------------+----------------------------+------------------------------+
 | ID | include                                 | probe                                         | dependency       | Codex CLI evidence     | backend observation        | current verdict              |
 +----+-----------------------------------------+-----------------------------------------------+------------------+------------------------+----------------------------+------------------------------+
-| 08 | reasoning.encrypted_content             | 08_include_reasoning_encrypted_content_probe  | none             | yes                    | supported                  | supported                    |
-| 09 | message.input_image.image_url           | 09_include_message_input_image_url_probe      | image input      | partial                | no image_url echo          | echo unsupported             |
-| 10 | message.output_text.logprobs            | 10_include_output_text_logprobs_probe         | model support    | no                     | rejected                   | unsupported in this path     |
-| 11 | web_search_call.results                 | 11_include_web_search_results_probe           | web_search tool  | yes                    | supported                  | supported                    |
-| 12 | web_search_call.action.sources          | 12_include_web_search_action_sources_probe    | web_search tool  | yes                    | supported                  | supported                    |
-| 13 | file_search_call.results                | 13_include_file_search_results_probe          | vector store     | no                     | skipped                    | not tested                   |
-| 14 | code_interpreter_call.outputs           | 14_include_code_interpreter_outputs_probe     | code tool        | no                     | unsupported tool type      | not applicable               |
-| 15 | computer_call_output.output.image_url   | 15_include_computer_output_image_url_probe    | computer tool    | no                     | unsupported tool type      | not applicable               |
+| 01 | reasoning.encrypted_content             | 01_reasoning_encrypted_content                | none             | yes                    | supported                  | supported                    |
+| 02 | message.input_image.image_url           | 02_message_input_image_url                    | image input      | partial                | no image_url echo          | echo unsupported             |
+| 03 | message.output_text.logprobs            | 03_output_text_logprobs                       | model support    | no                     | rejected                   | unsupported in this path     |
+| 04 | web_search_call.results                 | 04_web_search_results                         | web_search tool  | yes                    | supported                  | supported                    |
+| 05 | web_search_call.action.sources          | 05_web_search_action_sources                  | web_search tool  | yes                    | supported                  | supported                    |
+| 06 | file_search_call.results                | 06_file_search_results                        | vector store     | no                     | skipped                    | not tested                   |
+| 07 | code_interpreter_call.outputs           | 07_code_interpreter_outputs                   | code tool        | no                     | unsupported tool type      | not applicable               |
+| 08 | computer_call_output.output.image_url   | 08_computer_output_image_url                  | computer tool    | no                     | unsupported tool type      | not applicable               |
 +----+-----------------------------------------+-----------------------------------------------+------------------+------------------------+----------------------------+------------------------------+
 ```
 
 ## Detailed Results
 
-### 08 - `reasoning.encrypted_content`
+### 01 - `reasoning.encrypted_content`
 
-- Probe: `examples/08_include_reasoning_encrypted_content_probe.py`
+- Probe: `examples/include/01_reasoning_encrypted_content.py`
 - Tool dependency: none.
 - Codex CLI evidence: yes. Codex CLI adds `reasoning.encrypted_content` to
   `include` when reasoning is present.
@@ -44,9 +44,9 @@ aligned in source form.
 - Gateway policy: this include is required for the current stateless Codex
   backend flow and should remain automatically included.
 
-### 09 - `message.input_image.image_url`
+### 02 - `message.input_image.image_url`
 
-- Probe: `examples/09_include_message_input_image_url_probe.py`
+- Probe: `examples/include/02_message_input_image_url.py`
 - Tool dependency: none; this depends on image input, not a tool.
 - Codex CLI evidence: partial.
   - Codex CLI has a real `input_image` / `image_url` input path.
@@ -60,9 +60,9 @@ aligned in source form.
 - Current verdict: the current Codex backend path does not implement the
   official `message.input_image.image_url` include echo semantics.
 
-### 10 - `message.output_text.logprobs`
+### 03 - `message.output_text.logprobs`
 
-- Probe: `examples/10_include_output_text_logprobs_probe.py`
+- Probe: `examples/include/03_output_text_logprobs.py`
 - Tool dependency: none.
 - Codex CLI evidence: no. No Codex CLI usage of `logprobs` has been found.
 - Backend observation: rejected in earlier probing with:
@@ -81,9 +81,9 @@ Current Codex model + current gateway reasoning behavior rejects logprobs.
 - Current verdict: unsupported in this path. Do not generalize this to all
   OpenAI Responses API models.
 
-### 11 - `web_search_call.results`
+### 04 - `web_search_call.results`
 
-- Probe: `examples/11_include_web_search_results_probe.py`
+- Probe: `examples/include/04_web_search_results.py`
 - Tool dependency: `web_search` tool.
 - Codex CLI evidence: yes. Codex CLI defines a `web_search` tool shape.
 - Tool shape that worked:
@@ -108,9 +108,9 @@ $.output[1].results
 - Current verdict: supported when using the Codex CLI-compatible `web_search`
   tool shape.
 
-### 12 - `web_search_call.action.sources`
+### 05 - `web_search_call.action.sources`
 
-- Probe: `examples/12_include_web_search_action_sources_probe.py`
+- Probe: `examples/include/05_web_search_action_sources.py`
 - Tool dependency: `web_search` tool.
 - Codex CLI evidence: yes. Same `web_search` tool shape as probe 11.
 - Backend observation: supported. The response included source URL objects,
@@ -123,9 +123,9 @@ $.output[1].action.sources
 - Current verdict: supported when using the Codex CLI-compatible `web_search`
   tool shape.
 
-### 13 - `file_search_call.results`
+### 06 - `file_search_call.results`
 
-- Probe: `examples/13_include_file_search_results_probe.py`
+- Probe: `examples/include/06_file_search_results.py`
 - Tool dependency: `file_search` tool plus an existing vector store.
 - Codex CLI evidence: no direct matching Codex CLI tool shape has been
   established.
@@ -137,9 +137,9 @@ $.output[1].action.sources
 - Current verdict: not tested. Keep as an optional probe only for users who
   already have a valid vector store id.
 
-### 14 - `code_interpreter_call.outputs`
+### 07 - `code_interpreter_call.outputs`
 
-- Probe: `examples/14_include_code_interpreter_outputs_probe.py`
+- Probe: `examples/include/07_code_interpreter_outputs.py`
 - Tool dependency: official Code Interpreter tool.
 - Codex CLI evidence: no. Codex CLI public tool definitions do not show a
   `code_interpreter` tool.
@@ -159,9 +159,9 @@ Unsupported tool type: code_interpreter
   not a Codex CLI-aligned tool shape, and the observed backend explicitly
   rejects the official `code_interpreter` tool type.
 
-### 15 - `computer_call_output.output.image_url`
+### 08 - `computer_call_output.output.image_url`
 
-- Probe: `examples/15_include_computer_output_image_url_probe.py`
+- Probe: `examples/include/08_computer_output_image_url.py`
 - Tool dependency: official Computer Use tool loop.
 - Codex CLI evidence: no. Codex CLI public tool definitions do not show
   `computer_use_preview`, `computer_call`, or `computer_call_output`.

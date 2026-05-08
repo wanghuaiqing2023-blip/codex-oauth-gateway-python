@@ -771,6 +771,83 @@ class ServerIntegrationTests(unittest.TestCase):
         mock_get_upstream_auth.assert_called_once()
         conn.close()
 
+    @patch("gateway.server._get_upstream_auth", return_value=("access-token", "acct_test"))
+    @patch("gateway.server.requests.post")
+    def test_v1_omitted_store_sends_false_upstream(self, mock_post, mock_get_upstream_auth):
+        """Intent: ensure omitted store still satisfies the Codex backend store=false requirement."""
+        class FakeResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+            text = 'data: {"type":"response.completed","response":{"id":"resp_1","output":[]}}\n'
+
+            @staticmethod
+            def iter_content(chunk_size=1024):
+                yield b""
+
+        mock_post.return_value = FakeResponse()
+
+        conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
+        body = json.dumps(
+            {
+                "model": "gpt-5.2",
+                "stream": False,
+                "input": "hello",
+            }
+        ).encode("utf-8")
+        conn.request(
+            "POST",
+            "/v1/responses",
+            body=body,
+            headers={"content-type": "application/json", "authorization": "Bearer local-test-key"},
+        )
+        response = conn.getresponse()
+        self.assertEqual(response.status, 200)
+        response.read()
+
+        called_json = mock_post.call_args.kwargs["json"]
+        self.assertFalse(called_json["store"])
+        mock_get_upstream_auth.assert_called_once()
+        conn.close()
+
+    @patch("gateway.server._get_upstream_auth", return_value=("access-token", "acct_test"))
+    @patch("gateway.server.requests.post")
+    def test_v1_store_true_is_forced_false_upstream(self, mock_post, mock_get_upstream_auth):
+        """Intent: ensure official client store=true is accepted at the gateway but forced to store=false upstream."""
+        class FakeResponse:
+            status_code = 200
+            headers = {"content-type": "text/event-stream"}
+            text = 'data: {"type":"response.completed","response":{"id":"resp_1","output":[]}}\n'
+
+            @staticmethod
+            def iter_content(chunk_size=1024):
+                yield b""
+
+        mock_post.return_value = FakeResponse()
+
+        conn = HTTPConnection("127.0.0.1", self.port, timeout=5)
+        body = json.dumps(
+            {
+                "model": "gpt-5.2",
+                "stream": False,
+                "store": True,
+                "input": "hello",
+            }
+        ).encode("utf-8")
+        conn.request(
+            "POST",
+            "/v1/responses",
+            body=body,
+            headers={"content-type": "application/json", "authorization": "Bearer local-test-key"},
+        )
+        response = conn.getresponse()
+        self.assertEqual(response.status, 200)
+        response.read()
+
+        called_json = mock_post.call_args.kwargs["json"]
+        self.assertFalse(called_json["store"])
+        mock_get_upstream_auth.assert_called_once()
+        conn.close()
+
     @patch("gateway.server.requests.post")
     def test_v1_stream_path_passthrough(self, mock_post):
         class FakeResponse:
