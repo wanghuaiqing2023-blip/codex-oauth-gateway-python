@@ -1,62 +1,99 @@
 # codex-oauth-gateway-python
 
-A Python OAuth gateway for routing local or internal requests to OpenAI Codex Responses.
+A local Python OAuth gateway that lets the official OpenAI Python SDK talk to
+the ChatGPT Codex backend through OpenAI-compatible Responses API routes.
 
 ## Overview
-- Provides a lightweight HTTP gateway with OAuth token management.
-- Normalizes request payloads before forwarding upstream.
-- Supports both streaming passthrough and non-stream JSON responses.
 
-## Current capabilities
-- Routes
-  - `GET /health`: service health and auth status.
-  - `GET /v1/models`: OpenAI SDK-compatible model list.
-  - `GET /codex/models`: full Codex backend model metadata.
-  - `POST /responses`: forward requests to upstream Responses API.
-  - `POST /v1/responses`: OpenAI SDK-compatible Responses API facade.
-- OAuth
-  - Authorization code exchange.
-  - Refresh token flow with automatic renewal near expiry.
-  - Local token file persistence.
-- Request handling
-  - Model normalization for common aliases.
-  - Codex-required upstream fields such as `store=false` and `include=reasoning.encrypted_content`.
-  - Upstream requests are sent as SSE; response format follows client request mode.
-- Response handling
-  - SSE final-event parsing and `output_text` backfill.
-  - Maps `usage_limit_exceeded` 404 responses to 429.
-- Error handling
-  - Structured errors with `status`, `code`, and optional `details`.
+- Manages ChatGPT OAuth login, token refresh, and local token persistence.
+- Exposes OpenAI SDK-compatible routes such as `/v1/responses` and `/v1/models`.
+- Forwards explicit caller models unchanged; omitted models use environment or
+  backend model discovery defaults.
+- Applies only Codex-required request adaptations, such as upstream
+  `store=false` and `include=["reasoning.encrypted_content"]`.
+- Supports non-streaming SDK calls and streaming SDK calls.
+- Exposes `/codex/models` for full backend model metadata and capability probes.
+
+The gateway is intended to stay close to a transparent proxy. It should not
+become a smart routing layer or a custom client SDK.
+
+## Current Routes
+
+```text
++-------------------+-----------------------------------------------------+
+| Route             | Purpose                                             |
++-------------------+-----------------------------------------------------+
+| GET /health       | Health check and OAuth token status.                |
+| GET /v1/models    | OpenAI SDK-compatible model list.                   |
+| GET /codex/models | Full Codex backend model metadata.                  |
+| POST /responses   | Local Responses route.                              |
+| POST /v1/responses| OpenAI SDK-compatible Responses API route.          |
++-------------------+-----------------------------------------------------+
+```
 
 ## Quickstart
+
+Create an environment and install dependencies:
+
 ```bash
-python3 -m venv .venv
+python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 1) Authenticate and save tokens
+On Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+```
+
+Authenticate once:
+
 ```bash
 python auth_cli.py
 ```
 
-### 2) Start the gateway
+Start the gateway:
+
 ```bash
 python main.py
 ```
 
-Default address: `http://127.0.0.1:8787`
+Default address:
 
-### 3) Health check
+```text
+http://127.0.0.1:8787
+```
+
+Health check:
+
 ```bash
 curl -s http://127.0.0.1:8787/health
 ```
 
-### 4) Use with the official OpenAI SDK
+Run tests:
+
+```bash
+PYTHONPATH=. python -m unittest discover -s tests
+```
+
+On Windows PowerShell:
+
+```powershell
+python -m unittest discover -s tests
+```
+
+## OpenAI SDK Usage
+
 Install the SDK in your client environment:
+
 ```bash
 pip install openai
 ```
+
+Non-streaming:
 
 ```python
 from openai import OpenAI
@@ -67,7 +104,7 @@ client = OpenAI(
 )
 
 response = client.responses.create(
-    model="gpt-5.1-codex",
+    model="gpt-5.2",
     input="hello",
 )
 
@@ -75,9 +112,17 @@ print(response.output_text)
 ```
 
 Streaming:
+
 ```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8787/v1",
+    api_key="local-dummy-key",
+)
+
 stream = client.responses.create(
-    model="gpt-5.1-codex",
+    model="gpt-5.2",
     input="hello",
     stream=True,
 )
@@ -87,96 +132,150 @@ for event in stream:
         print(event.delta, end="")
 ```
 
-The local `api_key` is accepted for SDK compatibility. Upstream requests still use the OAuth token saved by `auth_cli.py`.
-
-### 5) Run tests
-```bash
-PYTHONPATH=. python -m unittest discover -s tests
-```
+The local `api_key` is accepted for SDK compatibility. Upstream requests use
+the OAuth access token saved by `auth_cli.py`; the inbound SDK key is not sent
+to the Codex backend.
 
 ## Examples
-Runnable client examples live in `examples/`.
+
+Runnable examples live in `examples/`. The directory is organized so that each
+OpenAI Responses API parameter has its own directory, and tool probes live
+under `examples/tool/`.
+
+Start with:
 
 ```bash
-python examples/01_health_check.py
-python examples/02_response_create.py
-python examples/03_stream_response.py
-python examples/04_messages_input.py
-python examples/05_list_models.py
-python examples/06_previous_response_id_probe.py
-python examples/07_conversation_probe.py
-python examples/08_include_reasoning_encrypted_content_probe.py
-python examples/09_include_message_input_image_url_probe.py
-python examples/10_include_output_text_logprobs_probe.py
-python examples/11_include_web_search_results_probe.py
-python examples/12_include_web_search_action_sources_probe.py
-python examples/13_include_file_search_results_probe.py
-python examples/14_include_code_interpreter_outputs_probe.py
-python examples/15_include_computer_output_image_url_probe.py
-python examples/16_param_max_output_tokens_probe.py
-python examples/17_param_temperature_probe.py
-python examples/18_param_top_p_probe.py
-python examples/19_param_text_format_probe.py
-python examples/20_param_instructions_probe.py
-python examples/21_param_tool_choice_auto_probe.py
-python examples/22_param_tool_choice_none_probe.py
-python examples/23_param_tool_choice_required_probe.py
-python examples/24_param_parallel_tool_calls_false_probe.py
-python examples/25_param_parallel_tool_calls_true_probe.py
-python examples/26_reasoning_summary_metadata_probe.py
-python examples/27_param_reasoning_effort_summary_matrix_probe.py
-python examples/28_param_text_verbosity_probe.py
-python examples/29_param_service_tier_probe.py
-python examples/30_param_metadata_probe.py
+python examples/basic/01_health_check.py
+python examples/basic/02_response_create.py
+python examples/basic/03_stream_response.py
+python examples/basic/04_messages_input.py
+python examples/models/01_list_models.py
 ```
 
-See `examples/README.md` for configuration options.
+Parameter examples:
+
+```text
+examples/background/
+examples/context_management/
+examples/conversation/
+examples/extra_body/
+examples/include/
+examples/instructions/
+examples/max_output_tokens/
+examples/max_tool_calls/
+examples/metadata/
+examples/parallel_tool_calls/
+examples/previous_response_id/
+examples/prompt_cache_retention/
+examples/reasoning/
+examples/safety_identifier/
+examples/service_tier/
+examples/store/
+examples/stream_options/
+examples/temperature/
+examples/text_format/
+examples/text_verbosity/
+examples/tool_choice/
+examples/top_logprobs/
+examples/top_p/
+examples/truncation/
+examples/user/
+```
+
+Tool examples:
+
+```text
+examples/tool/apply_patch/
+examples/tool/custom/
+examples/tool/function/
+examples/tool/image_generation/
+examples/tool/local_shell/
+examples/tool/openai_mcp/
+examples/tool/openai_shell/
+examples/tool/shell_function/
+examples/tool/tool_search/
+examples/tool/web_search/
+```
+
+See `examples/README.md` for detailed commands and current probe conclusions.
 
 ## Configuration
-- `CODEX_GATEWAY_PORT`: gateway port (default: `8787`)
-- `CODEX_UPSTREAM_TIMEOUT_SECONDS`: upstream timeout in seconds (default: `60`)
-- `CODEX_GATEWAY_TOKEN_FILE`: token file path (default: `~/.codex-oauth-gateway-python/openai.json`)
-- `CODEX_GATEWAY_DEFAULT_MODEL`: optional default model when a request omits `model`
-- `CODEX_GATEWAY_FALLBACK_MODEL`: built-in fallback when model discovery is unavailable (default: `gpt-5.2`)
-- `CODEX_MODELS_CLIENT_VERSION`: Codex backend model-list client version (default: `0.126.0`)
-- `CODEX_MODELS_CACHE_TTL_SECONDS`: in-process model-list cache TTL (default: `21600`, or 6 hours)
 
-If a request includes `model`, the gateway forwards it unchanged. If `model` is omitted, the gateway chooses `CODEX_GATEWAY_DEFAULT_MODEL`, then the first API-supported model from the Codex backend model list, then `CODEX_GATEWAY_FALLBACK_MODEL`.
-
-## Known limitations
-- The current stateless Codex backend path rejects `previous_response_id` with `Unsupported parameter: previous_response_id`. Do not rely on it for multi-turn state; send the needed history in `input` instead.
-- The gateway currently does not implement the official Conversations API (`POST /v1/conversations`), so `conversation` is not a supported state mechanism.
-- If a request omits `prompt_cache_key`, the gateway currently omits Codex session/cache fields rather than sending empty placeholders. If Codex backend behavior changes and requires a session id, the gateway should supply a valid id instead of `null` or an empty string.
-- `examples/06_previous_response_id_probe.py` and `examples/07_conversation_probe.py` are kept as experimental probes for state-related official parameters, not as recommended client patterns.
-
-## Upstream endpoints
-- Responses: `https://chatgpt.com/backend-api/codex/responses`
-- OAuth token: `https://auth.openai.com/oauth/token`
-- OAuth authorize: `https://auth.openai.com/oauth/authorize`
-
-## Project layout
 ```text
-.
-├── gateway/
-│   ├── auth.py
-│   ├── config.py
-│   ├── errors.py
-│   ├── model.py
-│   ├── response.py
-│   └── server.py
-├── tests/
-├── auth_cli.py
-├── main.py
-└── README.md
++----------------------------------+----------------------------------------------------+
+| Variable                         | Meaning                                            |
++----------------------------------+----------------------------------------------------+
+| CODEX_GATEWAY_PORT               | Gateway port, default 8787.                        |
+| CODEX_GATEWAY_TOKEN_FILE         | Token file path.                                   |
+| CODEX_GATEWAY_DEFAULT_MODEL      | Default model when the caller omits model.         |
+| CODEX_GATEWAY_FALLBACK_MODEL     | Fallback if model discovery is unavailable.        |
+| CODEX_MODELS_CLIENT_VERSION      | Client version for Codex model discovery.          |
+| CODEX_MODELS_CACHE_TTL_SECONDS   | In-process model metadata cache TTL.               |
+| CODEX_UPSTREAM_TIMEOUT_SECONDS   | Low-level upstream HTTP timeout, default 60.       |
++----------------------------------+----------------------------------------------------+
 ```
 
-## Roadmap
-- OpenAI SDK compatibility for `client.responses.create(...)` and streaming responses.
-- Proxy fidelity: accurate request forwarding, error passthrough, and response semantics.
-- Observability: structured logs, metrics, tracing.
-- Security hardening: token encryption and sensitive-data masking.
-- Broader test coverage for malformed SSE, concurrency, and network faults.
+Default token path:
 
-See `docs/design-principles.md` for the project compatibility and proxy design principles.
-See `docs/include-capability-matrix.md` for current `include` compatibility probe results.
-See `docs/parameter-capability-matrix.md` for current parameter compatibility probe results.
+```text
+~/.codex-oauth-gateway-python/openai.json
+```
+
+Default model selection when a request omits `model`:
+
+1. `CODEX_GATEWAY_DEFAULT_MODEL`
+2. First API-supported model from `/codex/models`
+3. `CODEX_GATEWAY_FALLBACK_MODEL`, default `gpt-5.2`
+
+If a request includes `model`, the gateway forwards it unchanged.
+
+## Current Compatibility Notes
+
+- `client.responses.create(...)` and `client.responses.create(..., stream=True)`
+  are the primary supported SDK flows.
+- `/v1/models` is SDK-compatible. `/codex/models` returns richer backend
+  metadata for diagnostics and examples.
+- `store` is a Codex backend compatibility policy: upstream requests are forced
+  to `store=false`.
+- `reasoning.encrypted_content` is automatically included because the current
+  stateless Codex response flow requires it.
+- `previous_response_id` is rejected by the current stateless Codex backend
+  path and should not be used as a multi-turn state mechanism here.
+- The gateway does not implement the official Conversations API, so
+  `conversation` is not a supported state mechanism.
+- If `prompt_cache_key` is omitted, the gateway omits Codex session/cache
+  fields rather than sending empty placeholders.
+- Tool support is intentionally documented through probes. Backend-hosted tools
+  and client-executed tools are different categories.
+
+## Project Layout
+
+```text
+.
++-- auth_cli.py
++-- main.py
++-- gateway/
+|   +-- auth.py
+|   +-- config.py
+|   +-- errors.py
+|   +-- model.py
+|   +-- response.py
+|   +-- server.py
++-- examples/
+|   +-- basic/
+|   +-- include/
+|   +-- tool/
+|   +-- ...
++-- docs/
++-- tests/
++-- requirements.txt
++-- README.md
+```
+
+## Documentation
+
+- `docs/design-principles.md`: proxy and compatibility design principles.
+- `docs/include-capability-matrix.md`: current `include` probe results.
+- `docs/parameter-capability-matrix.md`: selected parameter probe results.
+- `docs/tool-capability-matrix.md`: tool capability probe results.
+- `docs/manual-real-function-tests.md`: manual end-to-end verification checklist.

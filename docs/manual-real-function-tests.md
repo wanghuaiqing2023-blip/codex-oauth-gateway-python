@@ -1,6 +1,6 @@
 # Manual Real-Function Test Cases
 
-This document collects manual test cases for validating the gateway against real OAuth and backend behavior. It is intended as a living checklist while the gateway is still evolving.
+This document collects manual test cases for validating the gateway against real OAuth and backend behavior. It is intended as a regression checklist for the completed gateway surface.
 
 ## Scope
 
@@ -221,7 +221,7 @@ Steps:
 
 ```powershell
 $body = @{
-  model = "gpt-5.1-codex"
+  model = "gpt-5.2"
   stream = $false
   input = @(
     @{
@@ -256,7 +256,7 @@ Steps:
 
 ```powershell
 $body = @{
-  model = "gpt-5.1-codex"
+  model = "gpt-5.2"
   stream = $false
   instructions = "Always reply with exactly: custom-instructions-ok"
   input = @(
@@ -287,7 +287,7 @@ Steps:
 
 ```powershell
 $body = @{
-  model = "gpt-5.1-codex"
+  model = "gpt-5.2"
   stream = $true
   input = @(
     @{
@@ -352,22 +352,22 @@ curl.exe -s http://127.0.0.1:8787/responses `
 Expected result:
 
 - Request succeeds.
-- Gateway chooses the default normalized model.
+- Gateway chooses `CODEX_GATEWAY_DEFAULT_MODEL`, the first API-supported backend model, or `CODEX_GATEWAY_FALLBACK_MODEL`.
 
-### 5.2 Legacy Codex Model Alias
+### 5.2 Explicit Model Forwarding
 
-Purpose: verify that legacy model names map to supported model names.
+Purpose: verify that explicit model names are forwarded unchanged.
 
 Suggested inputs:
 
-- `gpt-5-codex`
-- `gpt-5-codex-mini`
-- `codex-mini-latest`
+- `gpt-5.2`
+- `gpt-5.4`
+- a deliberately unsupported model id
 
 Expected result:
 
-- Requests succeed when the mapped backend model is available.
-- Failures should be backend/model-access errors, not local validation crashes.
+- Supported explicit models succeed when the account has access.
+- Unsupported explicit models fail as backend/model-access errors, not because the gateway silently rewrites them.
 
 ### 5.3 Include Preservation
 
@@ -416,7 +416,7 @@ Steps:
 ```powershell
 curl.exe -s http://127.0.0.1:8787/responses `
   -H "content-type: application/json" `
-  -d '{"model":"gpt-5.1-codex"}'
+  -d '{"model":"gpt-5.2"}'
 ```
 
 Expected result:

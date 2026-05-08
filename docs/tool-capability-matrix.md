@@ -112,8 +112,7 @@ backend recognizes the official MCP shape.
 
 ## Result Files
 
-The old aggregate runner under `execute_test_plan/` has been removed. Tool
-probes now live under `examples/tool/`, grouped by exact tool family:
+Tool probes live under `examples/tool/`, grouped by exact tool family:
 
 - `examples/tool/web_search/01_matrix.py`
 - `examples/tool/image_generation/01_basic.py`

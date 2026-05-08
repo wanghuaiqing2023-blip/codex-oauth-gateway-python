@@ -183,7 +183,7 @@ client = OpenAI(
 )
 
 response = client.responses.create(
-    model="gpt-5.1-codex",
+    model="gpt-5.2",
     input="hello",
 )
 
@@ -194,7 +194,7 @@ And streaming:
 
 ```python
 stream = client.responses.create(
-    model="gpt-5.1-codex",
+    model="gpt-5.2",
     input="hello",
     stream=True,
 )
